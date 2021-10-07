@@ -1,0 +1,6 @@
+start_point = 0xF4000
+global_emotes = true
+channels = ["togglebit", "modprog"]
+custom_emotes = "./custom"
+output_font = "./twitchmotes.ttf"
+output_map = "./map.csv"

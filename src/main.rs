@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::ffi::OsStr;
 use std::fs::{create_dir_all, read_dir, remove_dir_all, File};
 use std::io::{Read, Write};
@@ -27,12 +28,20 @@ struct Config {
 #[tokio::main]
 async fn main() -> Result<()> {
     let token = env::var("TWITCHMOTES_TOKEN").ok();
+    let file: PathBuf = env::args()
+        .nth(1)
+        .context("No config file was passed")?
+        .try_into()
+        .with_context(|| "Invalid filepath passed for config")?;
     let config: Config = toml::from_str(&{
         let mut string = String::new();
-        File::open("twitchmotes.toml")?.read_to_string(&mut string)?;
+        File::open(&file)
+            .with_context(|| format!("Unable to open config file: {}", file.display()))?
+            .read_to_string(&mut string)
+            .expect("Config file to contain only valid UTF-8");
         string
     })
-    .with_context(|| "Failed to parse config file: twitchmotes.toml")?;
+    .with_context(|| format!("Failed to parse config file: {}", file.display()))?;
 
     let bm = Blobmoji {
         build_path: PathBuf::from("./build"),
@@ -49,17 +58,27 @@ async fn main() -> Result<()> {
     // Create the PNG directory clear it if it exists
     let png_dir = bm.build_path.join(PNG_DIR);
     if png_dir.exists() {
-        remove_dir_all(&png_dir)?;
+        remove_dir_all(&png_dir).with_context(|| {
+            format!("Unable to remove old png build dir: {}", png_dir.display())
+        })?;
     }
-    create_dir_all(&png_dir)?;
+    create_dir_all(&png_dir)
+        .with_context(|| format!("Unable to create png build dir: {}", png_dir.display()))?;
 
     let ttx_tmpl_path = bm.build_path.join(TMPL_TTX_TMPL);
 
-    let mut file = File::create(&ttx_tmpl_path)?;
-    file.write_all(TMPL_TTX_TMPL_CONTENT)?;
+    let mut file = File::create(&ttx_tmpl_path).with_context(|| {
+        format!(
+            "Unable to create template file in build directory: {}",
+            ttx_tmpl_path.display(),
+        )
+    })?;
+    file.write_all(TMPL_TTX_TMPL_CONTENT)
+        .expect("Be able to write content of template file");
 
     // Create the emoji_u*.pngs
 
+    // Custom Emotes
     let mut code_point = config.start_point;
     let mut emotes = vec![];
 
