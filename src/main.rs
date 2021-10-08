@@ -2,18 +2,22 @@ use std::collections::HashMap;
 use std::convert::TryInto;
 use std::ffi::OsStr;
 use std::fs::{create_dir_all, read_dir, remove_dir_all, File};
-use std::io::{Read, Write};
+use std::io::{copy, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::{env, fs};
 
-use anyhow::{Context, Result};
+use anyhow::*;
 use emoji_builder::builders::blobmoji::{Blobmoji, PNG_DIR, TMPL_TTX_TMPL, TMPL_TTX_TMPL_CONTENT};
 use emoji_builder::changes::FileHashes;
 use emoji_builder::emoji::Emoji;
 use emoji_builder::sha2::digest::generic_array::GenericArray;
 use emoji_builder::sha2::{Digest, Sha256};
 use emoji_builder::usvg::fontdb;
+use futures::{stream, TryStreamExt};
 use serde::Deserialize;
+use twitch_api2::helix::chat::{ChannelEmote, GlobalEmote};
+use twitch_api2::HelixClient;
+use twitch_oauth2::{AccessToken, UserToken};
 
 #[derive(Deserialize, Debug)]
 struct Config {
@@ -88,9 +92,20 @@ async fn main() -> Result<()> {
     }
     // TODO twitch download
 
+    if let Some(token) = token {
+        let mut twitch_emotes = twitch_emotes(
+            token,
+            config.global_emotes,
+            config.channels,
+            &png_dir,
+            &mut code_point,
+        )
+        .await?;
+        emotes.append(&mut twitch_emotes);
+    }
+
     // Create mapping
     let mut csv = String::new();
-
     for (name, code_point) in &emotes {
         csv.push_str(&format!("{},{:x}\n", name, code_point))
     }
@@ -159,4 +174,72 @@ fn custom_emotes(
     }
 
     Ok(emotes)
+}
+
+async fn twitch_emotes(
+    token: String,
+    global: bool,
+    channels: Vec<String>,
+    to_dir: &Path,
+    codepoint: &mut u32,
+) -> Result<Vec<(String, u32)>> {
+    let client: HelixClient<reqwest::Client> = HelixClient::default();
+    let token = AccessToken::new(token);
+    let token = UserToken::from_existing(&client, token, None, None).await?;
+
+    let mut emotes = vec![];
+    if global {
+        emotes.extend(client.get_global_emotes(&token).await?.into_iter().map(
+            |GlobalEmote { id, name, .. }| {
+                (id, name, {
+                    // codepoint++
+                    let x = *codepoint;
+                    *codepoint += 1;
+                    x
+                })
+            },
+        ));
+    }
+
+    for channel in channels {
+        emotes.extend(
+            client
+                .get_channel_emotes_from_login(channel.clone(), &token)
+                .await?
+                .ok_or_else(|| anyhow!("Channel not found: {}", channel))?
+                .into_iter()
+                .map(|ChannelEmote { id, name, .. }| {
+                    (id, name, {
+                        let x = *codepoint;
+                        *codepoint += 1;
+                        x
+                    })
+                }),
+        );
+    }
+
+    stream::iter(emotes.iter().map(|a| -> Result<_> { Ok(a) }))
+        .try_for_each_concurrent(32, |(id, _, codepoint)| async move {
+            let file = to_dir.join(format!("emoji_u{:x}.png", codepoint));
+            let mut file = File::create(file).unwrap();
+
+            // https://static-cdn.jtvnw.net/emoticons/v2/{{id}}/{{format}}/{{theme_mode}}/{{scale}}
+            let target = format!(
+                "https://static-cdn.jtvnw.net/emoticons/v2/{}/{}/{}/{}",
+                id, "static", "dark", "3.0"
+            );
+            dbg!(&target);
+
+            copy(
+                &mut Cursor::new(reqwest::get(target).await.unwrap().bytes().await.unwrap()),
+                &mut file,
+            )?;
+            Ok(())
+        })
+        .await?;
+
+    Ok(emotes
+        .into_iter()
+        .map(|(_, name, code_point)| (name, code_point))
+        .collect())
 }
