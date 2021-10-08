@@ -1,6 +1,12 @@
 # Twitchmotes
 This is to create a font containing twitch emotes as emojis in the [Supplementary Private Use Area-A](https://en.wikipedia.org/wiki/Private_Use_Areas#PUA-A).
 
+## Prerequisites
+This tool requires some python tools, you can install those with:
+```sh
+pip install -r requirements.txt
+```
+
 ## Example configuration file
 ```toml
 # config.toml
