@@ -10,12 +10,24 @@ pip install -r requirements.txt
 ## Example configuration file
 ```toml
 # config.toml
+
+# Code point of the first emote
 start_point = 0xF4000
+# Should global emotes be added
 global_emotes = true
+# Channels whose emotes are used 
 channels = ["togglebit", "modprog"]
+# Directory containing Images to generate custom emotes from 
+# The file name without extension is used as the emote name
 custom_emotes = "./custom"
+# File to store the font
 output_font = "./twitchmotes.ttf"
+# File to store the map from emote name to unicode code point
 output_map = "./map.csv"
+# Either 1 => 28px, 2 => 56px, 3 => 112px
+emote_scale = 3
+# The number of parallel downloads when fetching the twitch emotes
+parallel_downloads = 32
 ```
 
 ## Usage

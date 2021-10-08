@@ -21,12 +21,24 @@ use twitch_oauth2::{AccessToken, UserToken};
 
 #[derive(Deserialize, Debug)]
 struct Config {
+    /// Code point of the first emote
     start_point: u32,
+    /// Should global emotes be added
     global_emotes: bool,
+    /// Channels whose emotes are used
     channels: Vec<String>,
+    /// Directory containing Images to generate custom emotes from
+    ///
+    /// The file name without extension is used as the emote name.
     custom_emotes: Option<PathBuf>,
+    /// File to store the font
     output_font: PathBuf,
+    /// File to store the map from emote name to unicode code point
     output_map: PathBuf,
+    /// Either 1 => 28px, 2 => 56px, 3 => 112px
+    emote_scale: u32,
+    /// The number of parallel downloads when fetching the twitch emotes
+    parallel_downloads: usize,
 }
 
 #[tokio::main]
@@ -86,21 +98,14 @@ async fn main() -> Result<()> {
     let mut code_point = config.start_point;
     let mut emotes = vec![];
 
-    if let Some(custom_dir) = config.custom_emotes {
-        let mut custom_emotes = custom_emotes(&custom_dir, &png_dir, &mut code_point)?;
+    if let Some(custom_dir) = &config.custom_emotes {
+        let mut custom_emotes = custom_emotes(custom_dir, &png_dir, &mut code_point)?;
         emotes.append(&mut custom_emotes);
     }
-    // TODO twitch download
 
+    // Twitch download
     if let Some(token) = token {
-        let mut twitch_emotes = twitch_emotes(
-            token,
-            config.global_emotes,
-            config.channels,
-            &png_dir,
-            &mut code_point,
-        )
-        .await?;
+        let mut twitch_emotes = twitch_emotes(token, &config, &png_dir, &mut code_point).await?;
         emotes.append(&mut twitch_emotes);
     }
 
@@ -178,8 +183,7 @@ fn custom_emotes(
 
 async fn twitch_emotes(
     token: String,
-    global: bool,
-    channels: Vec<String>,
+    config: &Config,
     to_dir: &Path,
     codepoint: &mut u32,
 ) -> Result<Vec<(String, u32)>> {
@@ -187,8 +191,15 @@ async fn twitch_emotes(
     let token = AccessToken::new(token);
     let token = UserToken::from_existing(&client, token, None, None).await?;
 
+    let &Config {
+        global_emotes,
+        parallel_downloads,
+        emote_scale,
+        ..
+    } = config;
+
     let mut emotes = vec![];
-    if global {
+    if global_emotes {
         emotes.extend(client.get_global_emotes(&token).await?.into_iter().map(
             |GlobalEmote { id, name, .. }| {
                 (id, name, {
@@ -201,7 +212,7 @@ async fn twitch_emotes(
         ));
     }
 
-    for channel in channels {
+    for channel in &config.channels {
         emotes.extend(
             client
                 .get_channel_emotes_from_login(channel.clone(), &token)
@@ -210,6 +221,7 @@ async fn twitch_emotes(
                 .into_iter()
                 .map(|ChannelEmote { id, name, .. }| {
                     (id, name, {
+                        // codepoint++
                         let x = *codepoint;
                         *codepoint += 1;
                         x
@@ -219,14 +231,14 @@ async fn twitch_emotes(
     }
 
     stream::iter(emotes.iter().map(|a| -> Result<_> { Ok(a) }))
-        .try_for_each_concurrent(32, |(id, _, codepoint)| async move {
+        .try_for_each_concurrent(parallel_downloads, |(id, _, codepoint)| async move {
             let file = to_dir.join(format!("emoji_u{:x}.png", codepoint));
             let mut file = File::create(file).unwrap();
 
             // https://static-cdn.jtvnw.net/emoticons/v2/{{id}}/{{format}}/{{theme_mode}}/{{scale}}
             let target = format!(
-                "https://static-cdn.jtvnw.net/emoticons/v2/{}/{}/{}/{}",
-                id, "static", "dark", "3.0"
+                "https://static-cdn.jtvnw.net/emoticons/v2/{}/{}/{}/{}.0",
+                id, "static", "dark", emote_scale
             );
             dbg!(&target);
 

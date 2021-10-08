@@ -4,3 +4,5 @@ channels = ["togglebit", "modprog"]
 custom_emotes = "./custom"
 output_font = "./twitchmotes.ttf"
 output_map = "./map.csv"
+emote_scale = 3
+parallel_downloads = 32
