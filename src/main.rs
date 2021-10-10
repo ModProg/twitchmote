@@ -240,7 +240,6 @@ async fn twitch_emotes(
                 "https://static-cdn.jtvnw.net/emoticons/v2/{}/{}/{}/{}.0",
                 id, "static", "dark", emote_scale
             );
-            dbg!(&target);
 
             copy(
                 &mut Cursor::new(reqwest::get(target).await.unwrap().bytes().await.unwrap()),
