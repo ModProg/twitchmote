@@ -1,6 +1,8 @@
 # Twitchmotes
 This is to create a font containing twitch emotes as emojis in the [Supplementary Private Use Area-A](https://en.wikipedia.org/wiki/Private_Use_Areas#PUA-A).
 
+You can use this with emote_mapper: https://nest.pijul.com/ModProg/emote_mapper
+
 ## Prerequisites
 This tool requires some python tools, you can install those with:
 ```sh
